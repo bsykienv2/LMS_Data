@@ -126,6 +126,9 @@ function createRecord(sheetName, data) {
 
   // 4. Ghi vào Sheet
   sheet.appendRow(rowToAdd);
+  
+  // *** FIX: FLUSH DATA IMMEDIATELY ***
+  SpreadsheetApp.flush();
 
   return { status: 'success', data: data };
 }
@@ -170,6 +173,9 @@ function updateRecord(sheetName, id, updates) {
   // 5. Ghi đè lại dòng đó (rowIndex + 1 vì row Sheet bắt đầu từ 1)
   sheet.getRange(rowIndex + 1, 1, 1, lastCol).setValues([newRow]);
 
+  // *** FIX: FLUSH DATA IMMEDIATELY ***
+  SpreadsheetApp.flush();
+
   // 6. Trả về object đã update đầy đủ (để frontend cập nhật state)
   const resultObj = {};
   headers.forEach((h, i) => resultObj[h] = parseCell(newRow[i]));
@@ -197,6 +203,9 @@ function deleteRecord(sheetName, id) {
 
   // Xóa dòng. (rowIndex + 1)
   sheet.deleteRow(rowIndex + 1);
+  
+  // *** FIX: FLUSH DATA ***
+  SpreadsheetApp.flush();
 
   return { status: 'success', id: id };
 }
