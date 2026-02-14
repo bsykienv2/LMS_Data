@@ -51,16 +51,16 @@ function handleRequest(e, httpMethod) {
   const lock = LockService.getScriptLock();
   
   try {
+    // *** FIX: Lock cả GET và POST để đảm bảo dữ liệu vừa ghi (Login) xong thì mới được Đọc ***
+    // Nếu không lock GET, lệnh fetchStudents sẽ chạy song song khi Login chưa kịp lưu Token vào Sheet
+    if (!lock.tryLock(APP_CONFIG.LOCK_WAIT_MS)) {
+      throw new Error('Server is busy. Please try again later.');
+    }
+
     const params = parseParams(e);
     
     // --- A. SECURITY CHECK (API KEY & RATE LIMIT) ---
     validateSecurity(params);
-
-    if (httpMethod === 'POST') {
-      if (!lock.tryLock(APP_CONFIG.LOCK_WAIT_MS)) {
-        throw new Error('Server is busy. Please try again later.');
-      }
-    }
 
     const { resource, action } = params;
     // Extract Token from _sec object or params
