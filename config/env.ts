@@ -4,11 +4,20 @@
  */
 
 const getEnv = (key: string, defaultValue: string = ''): string => {
-  const value = (import.meta as any).env[key];
-  if (value === undefined || value === null) {
+  try {
+    // Kiểm tra an toàn xem env có tồn tại không trước khi truy cập
+    const env = (import.meta as any).env;
+    if (!env) return defaultValue;
+    
+    const value = env[key];
+    if (value === undefined || value === null) {
+      return defaultValue;
+    }
+    return String(value);
+  } catch (e) {
+    // Tránh crash nếu import.meta lỗi
     return defaultValue;
   }
-  return String(value);
 };
 
 export const CONFIG = {
@@ -20,8 +29,8 @@ export const CONFIG = {
   
   APP_NAME: getEnv('VITE_APP_NAME', 'LMS App'),
   APP_VERSION: getEnv('VITE_APP_VERSION', '1.0.0'),
-  IS_DEV: (import.meta as any).env.DEV,
-  IS_PROD: (import.meta as any).env.PROD,
+  IS_DEV: (import.meta as any).env?.DEV || false,
+  IS_PROD: (import.meta as any).env?.PROD || false,
 };
 
 if (!CONFIG.API_URL) {
