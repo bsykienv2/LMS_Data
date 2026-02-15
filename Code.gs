@@ -51,8 +51,6 @@ function handleRequest(e, httpMethod) {
   const lock = LockService.getScriptLock();
   
   try {
-    // *** FIX: Lock cả GET và POST để đảm bảo dữ liệu vừa ghi (Login) xong thì mới được Đọc ***
-    // Nếu không lock GET, lệnh fetchStudents sẽ chạy song song khi Login chưa kịp lưu Token vào Sheet
     if (!lock.tryLock(APP_CONFIG.LOCK_WAIT_MS)) {
       throw new Error('Server is busy. Please try again later.');
     }
@@ -63,7 +61,6 @@ function handleRequest(e, httpMethod) {
     validateSecurity(params);
 
     const { resource, action } = params;
-    // Extract Token from _sec object or params
     const token = params._sec?.token || params.token;
 
     // --- B. PUBLIC / SYSTEM ROUTES ---
@@ -71,6 +68,21 @@ function handleRequest(e, httpMethod) {
     if (action === 'setup') {
       const result = setupController();
       return responseJSON(result, 'System initialized', true);
+    }
+    
+    // *** CỨU HỘ: API Reset mật khẩu Admin về "1" ***
+    // Gọi bằng cách mở tab mới: [SCRIPT_URL]?action=reset_admin&secret=LMS_SECRET_KEY_SECURE_2024
+    if (action === 'reset_admin') {
+       const users = getAll('USERS').data;
+       const admin = users.find(u => u.username === 'admin');
+       if (admin) {
+         // Hash password "1"
+         const newPass = hashPassword("1");
+         updateRecord('USERS', admin.id, { password: newPass });
+         return responseJSON({ success: true }, 'Admin password reset to "1"', true);
+       } else {
+         return responseJSON(null, 'Admin user not found', false);
+       }
     }
 
     // --- C. AUTHENTICATION MIDDLEWARE ---
@@ -179,8 +191,6 @@ function route(resource, method, payload) {
 
       // *** SECURITY INTERCEPTION: PASSWORD HASHING ***
       if (sheetName === 'USERS' && data.password) {
-        // If password is plain text (not already hashed), hash it.
-        // Simple check: SHA256 hex is 64 chars. If length < 50, assume plain.
         if (data.password.length < 50) {
            data.password = hashPassword(data.password);
         }
