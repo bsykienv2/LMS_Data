@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, UserCheck, UserX, Shield, CheckCircle, Settings, Camera, ZoomIn, X, Save, User as UserIcon, GraduationCap, Filter } from 'lucide-react';
+import { Search, UserCheck, UserX, Shield, CheckCircle, Settings, Camera, ZoomIn, X, Save, User as UserIcon, GraduationCap, Edit } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
@@ -25,9 +26,9 @@ export const UserManagerPage: React.FC = () => {
   const [selectedGradeId, setSelectedGradeId] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('');
 
-  // --- Admin Edit State ---
+  // --- Edit State ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [adminFormData, setAdminFormData] = useState<Partial<User>>({});
+  const [editingUser, setEditingUser] = useState<Partial<User>>({});
 
   // --- Image Crop State ---
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -61,9 +62,7 @@ export const UserManagerPage: React.FC = () => {
       if (selectedClassId && u.classId !== selectedClassId) return false;
       
       if (selectedGradeId && !selectedClassId) {
-        // Find class of student
         const cls = classes.find(c => c.id === u.classId);
-        // If class belongs to selected grade
         if (cls?.gradeId !== selectedGradeId) return false;
       }
     }
@@ -127,11 +126,9 @@ export const UserManagerPage: React.FC = () => {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const img = imgRef.current;
-    
     const scale = Math.max(canvas.width / img.width, canvas.height / img.height) * cropScale;
     const x = (canvas.width - img.width * scale) / 2 + cropPos.x;
     const y = (canvas.height - img.height * scale) / 2 + cropPos.y;
-
     ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
   };
 
@@ -146,7 +143,7 @@ export const UserManagerPage: React.FC = () => {
     const canvas = canvasRef.current;
     if (canvas) {
       const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      setAdminFormData({ ...adminFormData, avatar: croppedDataUrl });
+      setEditingUser({ ...editingUser, avatar: croppedDataUrl });
       setImageSrc(null);
     }
   };
@@ -164,24 +161,34 @@ export const UserManagerPage: React.FC = () => {
 
   const handleMouseUp = () => setIsDragging(false);
 
-  // --- Admin Update Handler ---
+  // --- Update Handler ---
+  const handleOpenEdit = (targetUser: User) => {
+     setEditingUser({ ...targetUser });
+     setImageSrc(null);
+     setIsEditModalOpen(true);
+  };
+
   const handleOpenAdminEdit = () => {
     if (user) {
        const currentUser = db.users.getById(user.id);
-       setAdminFormData({ ...currentUser });
-       setImageSrc(null);
-       setIsEditModalOpen(true);
+       handleOpenEdit(currentUser!);
     }
   };
 
-  const handleSaveAdmin = () => {
-    if (!adminFormData.id || !adminFormData.username) return;
+  const handleSaveUser = () => {
+    if (!editingUser.id || !editingUser.username) return;
     
-    db.users.update(adminFormData.id, adminFormData);
-    db.logActivity(user, 'Cập nhật Admin', 'Cập nhật thông tin tài khoản quản trị');
+    db.users.update(editingUser.id, editingUser);
+    db.logActivity(user, 'Cập nhật tài khoản', `Cập nhật thông tin user: ${editingUser.username}`);
     
-    alert("Cập nhật thành công! Hệ thống sẽ tải lại để áp dụng thay đổi.");
-    window.location.reload();
+    alert("Cập nhật thành công!");
+    setUsers(db.users.getAll());
+    setIsEditModalOpen(false);
+    
+    // If updating self, reload to reflect changes in header
+    if (editingUser.id === user?.id) {
+       window.location.reload();
+    }
   };
 
   return (
@@ -280,7 +287,6 @@ export const UserManagerPage: React.FC = () => {
                <tr>
                  <th className="px-6 py-3">Người dùng</th>
                  <th className="px-6 py-3">Vai trò</th>
-                 {/* Columns specific to Students */}
                  {activeTab === 'STUDENT' && (
                    <>
                      <th className="px-6 py-3">Khối</th>
@@ -324,7 +330,6 @@ export const UserManagerPage: React.FC = () => {
                            )}
                         </td>
 
-                        {/* Student Specific Columns */}
                         {activeTab === 'STUDENT' && (
                           <>
                             <td className="px-6 py-4 text-gray-700">{classInfo?.gradeName}</td>
@@ -351,16 +356,26 @@ export const UserManagerPage: React.FC = () => {
                            )}
                         </td>
                         <td className="px-6 py-4 text-right">
-                           <label className="relative inline-flex items-center cursor-pointer">
-                              <input 
-                                type="checkbox" 
-                                className="sr-only peer"
-                                checked={u.isActive}
-                                onChange={() => toggleStatus(u.id, u.isActive)}
-                                disabled={u.id === 'admin' || u.id === user?.id}
-                              />
-                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                           </label>
+                           <div className="flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => handleOpenEdit(u)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                title="Chỉnh sửa thông tin"
+                              >
+                                <Edit size={18} />
+                              </button>
+                              
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                  <input 
+                                    type="checkbox" 
+                                    className="sr-only peer"
+                                    checked={u.isActive}
+                                    onChange={() => toggleStatus(u.id, u.isActive)}
+                                    disabled={u.id === 'admin' || u.id === user?.id}
+                                  />
+                                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                              </label>
+                           </div>
                         </td>
                       </tr>
                     );
@@ -371,24 +386,24 @@ export const UserManagerPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* ADMIN EDIT MODAL */}
+      {/* EDIT MODAL (Generic for both Admin & Student) */}
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        title="Cài đặt tài khoản Admin"
+        title={`Cập nhật: ${editingUser.name}`}
         footer={
            <div className="flex justify-end gap-2">
              <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>Hủy</Button>
-             <Button onClick={handleSaveAdmin}><Save size={16} className="mr-2" /> Lưu thay đổi</Button>
+             <Button onClick={handleSaveUser}><Save size={16} className="mr-2" /> Lưu thay đổi</Button>
            </div>
         }
       >
          <div className="space-y-4">
-            {/* Image Uploader & Cropper Trigger */}
+            {/* Image Uploader */}
             <div className="flex flex-col items-center justify-center mb-6">
                <div className="relative w-24 h-24 mb-3">
-                  {adminFormData.avatar ? (
-                    <img src={adminFormData.avatar} className="w-full h-full rounded-full object-cover border-4 border-white shadow" />
+                  {editingUser.avatar ? (
+                    <img src={editingUser.avatar} className="w-full h-full rounded-full object-cover border-4 border-white shadow" />
                   ) : (
                     <div className="w-full h-full rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
                       <UserIcon size={40} />
@@ -399,9 +414,7 @@ export const UserManagerPage: React.FC = () => {
                     <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
                   </label>
                </div>
-               <p className="text-xs text-gray-500">Tải ảnh đại diện mới</p>
                
-               {/* Crop Editor Area */}
                {imageSrc && (
                  <div className="mt-4 p-4 border rounded-xl bg-gray-50 w-full">
                     <div className="flex justify-between items-center mb-2">
@@ -431,19 +444,20 @@ export const UserManagerPage: React.FC = () => {
                  <label className="block text-sm font-medium text-gray-700 mb-1">Tên hiển thị</label>
                  <input 
                    className="w-full p-2 border rounded" 
-                   value={adminFormData.name || ''} 
-                   onChange={e => setAdminFormData({...adminFormData, name: e.target.value})}
+                   value={editingUser.name || ''} 
+                   onChange={e => setEditingUser({...editingUser, name: e.target.value})}
                  />
                </div>
                
                <div>
                  <label className="block text-sm font-medium text-gray-700 mb-1">Tên đăng nhập</label>
                  <input 
-                   className="w-full p-2 border rounded bg-gray-100 text-gray-500 cursor-not-allowed" 
-                   value={adminFormData.username || ''} 
-                   readOnly
+                   className={`w-full p-2 border rounded ${editingUser.id === 'admin' ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                   value={editingUser.username || ''} 
+                   onChange={e => setEditingUser({...editingUser, username: e.target.value})}
+                   readOnly={editingUser.id === 'admin'} // Prevent changing main admin username
                  />
-                 <p className="text-xs text-gray-400 mt-1">Không thể thay đổi tên đăng nhập</p>
+                 {editingUser.id === 'admin' && <p className="text-xs text-gray-400 mt-1">Không thể thay đổi tên đăng nhập Admin chính</p>}
                </div>
 
                <div>
@@ -451,9 +465,9 @@ export const UserManagerPage: React.FC = () => {
                  <input 
                    type="text"
                    className="w-full p-2 border rounded" 
-                   placeholder="Nhập mật khẩu mới nếu muốn đổi"
-                   value={adminFormData.password || ''} 
-                   onChange={e => setAdminFormData({...adminFormData, password: e.target.value})}
+                   placeholder="Để trống nếu không đổi"
+                   value={editingUser.password || ''} 
+                   onChange={e => setEditingUser({...editingUser, password: e.target.value})}
                  />
                </div>
                
@@ -462,9 +476,22 @@ export const UserManagerPage: React.FC = () => {
                  <input 
                    type="email"
                    className="w-full p-2 border rounded" 
-                   value={adminFormData.email || ''} 
-                   onChange={e => setAdminFormData({...adminFormData, email: e.target.value})}
+                   value={editingUser.email || ''} 
+                   onChange={e => setEditingUser({...editingUser, email: e.target.value})}
                  />
+               </div>
+
+               <div className="flex items-center pt-2">
+                   <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={editingUser.isActive} 
+                        onChange={e => setEditingUser({...editingUser, isActive: e.target.checked})} 
+                        className="w-4 h-4 text-blue-600 rounded" 
+                        disabled={editingUser.id === 'admin' || editingUser.id === user?.id}
+                      />
+                      <span className="text-sm">Kích hoạt tài khoản</span>
+                   </label>
                </div>
             </div>
          </div>
