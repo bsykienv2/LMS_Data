@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, Search, Upload, Download, Camera, ZoomIn, X, Save, User, Image as ImageIcon } from 'lucide-react';
+import { Plus, Search, Upload, Download, Camera, ZoomIn, X, Save, User, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
@@ -9,7 +10,7 @@ import { api } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import { useDebounce } from '../../hooks/useDebounce';
 import { Grade, Class, User as UserType, Role } from '../../types';
-import { formatDate, parseDateToISO } from '../../utils/helpers';
+import { formatDate, parseDateToISO, generateUsername } from '../../utils/helpers';
 import * as XLSX from 'xlsx';
 
 export const StudentManagerPage: React.FC = () => {
@@ -87,7 +88,12 @@ export const StudentManagerPage: React.FC = () => {
 
   // Handlers
   const handleOpenAdd = () => {
-    setFormData({ classId: selectedClassId, isActive: true, role: Role.STUDENT });
+    setFormData({ 
+      classId: selectedClassId, 
+      isActive: false, // Mặc định chưa kích hoạt
+      role: Role.STUDENT,
+      password: '1' // Mật khẩu mặc định
+    });
     setImageSrc(null);
     setIsModalOpen(true);
   };
@@ -97,6 +103,14 @@ export const StudentManagerPage: React.FC = () => {
     setImageSrc(null); 
     setIsModalOpen(true);
   };
+
+  // Auto generate username when name changes (Only in Create mode)
+  useEffect(() => {
+    if (!formData.id && formData.name) {
+      const genUser = generateUsername(formData.name);
+      setFormData(prev => ({ ...prev, username: genUser }));
+    }
+  }, [formData.name]);
 
   // ... (Image Handlers - Keep same as before) ...
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -155,7 +169,7 @@ export const StudentManagerPage: React.FC = () => {
   
   const handleMouseUp = () => setIsDragging(false);
 
-  // ... (API & Import Logic - Keep same as before) ...
+  // ... (API & Import Logic) ...
   const handleSaveStudent = async () => {
     if (!formData.name || !formData.username || !formData.classId) {
       alert("Vui lòng điền đầy đủ: Họ tên, Tên đăng nhập, Lớp.");
@@ -164,14 +178,14 @@ export const StudentManagerPage: React.FC = () => {
     const userPayload: UserType = {
       ...(formData as UserType),
       email: formData.email || `${formData.username}@lms.vn`,
-      password: formData.password || '123456', 
+      password: formData.password || '1', 
       role: Role.STUDENT,
-      isActive: formData.isActive ?? true
+      isActive: formData.isActive ?? false // Default false if undefined
     };
     try {
       if (!formData.id) {
         await api.create('users', userPayload);
-        alert("Thêm học sinh thành công!");
+        alert(`Thêm học sinh thành công! User: ${userPayload.username} / Pass: ${userPayload.password}`);
       } else {
         await api.update('users', formData.id, userPayload);
         alert("Cập nhật thành công!");
@@ -182,9 +196,8 @@ export const StudentManagerPage: React.FC = () => {
   };
 
   const handleDownloadTemplate = () => {
-     // ... Keep existing logic
-     const headers = ["HoTen", "NgaySinh", "TenDangNhap", "MatKhau"];
-     const example = ["Nguyễn Văn A", "20/05/2012", "hs01", "123456"];
+     const headers = ["HoTen", "NgaySinh", "LopId(Option)", "TenDangNhap(Option)"];
+     const example = ["Nguyễn Văn A", "20/05/2012", "", ""];
      const ws = XLSX.utils.aoa_to_sheet([headers, example]);
      const wb = XLSX.utils.book_new();
      XLSX.utils.book_append_sheet(wb, ws, "MauImportHocSinh");
@@ -192,7 +205,6 @@ export const StudentManagerPage: React.FC = () => {
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ... Keep existing logic
      const file = e.target.files?.[0];
      if (!file || !selectedClassId) { alert("Vui lòng chọn lớp!"); return; }
      const reader = new FileReader();
@@ -201,21 +213,27 @@ export const StudentManagerPage: React.FC = () => {
            const wb = XLSX.read(evt.target?.result, { type: 'array' });
            const ws = wb.Sheets[wb.SheetNames[0]];
            const json = XLSX.utils.sheet_to_json(ws);
-           // ... (API calls loop)
+           
            let count = 0;
            for (const row of json as any[]) {
               const name = row['HoTen'] || row['Name'];
-              const uname = row['TenDangNhap'] || row['Username'];
-              if (name && uname) {
+              // Auto generate if missing
+              const uname = row['TenDangNhap'] || row['Username'] || generateUsername(String(name));
+              const pass = row['MatKhau'] || '1'; // Default Password '1'
+
+              if (name) {
                  await api.create('users', {
-                    name: String(name), username: String(uname),
-                    password: String(row['MatKhau'] || '123456'),
-                    role: Role.STUDENT, classId: selectedClassId, isActive: true
+                    name: String(name), 
+                    username: String(uname),
+                    password: String(pass),
+                    role: Role.STUDENT, 
+                    classId: selectedClassId, 
+                    isActive: false // Default inactive for import
                  });
                  count++;
               }
            }
-           alert(`Đã import ${count} học sinh`);
+           alert(`Đã import ${count} học sinh. Tài khoản mặc định chưa kích hoạt.`);
            fetchStudents();
            setIsImportModalOpen(false);
         } catch (e) { alert("Lỗi import"); }
@@ -315,7 +333,12 @@ export const StudentManagerPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <p className="font-mono text-xs bg-gray-100 px-2 py-1 rounded inline-block">{s.username}</p>
+                        <div className="flex flex-col">
+                           <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded inline-block w-fit mb-1">{s.username}</span>
+                           <span className={`text-[10px] ${s.isActive ? 'text-green-600' : 'text-red-500 italic'}`}>
+                              {s.isActive ? 'Đã kích hoạt' : 'Chưa kích hoạt'}
+                           </span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <Button size="sm" variant="ghost" onClick={() => handleEdit(s)}>Chỉnh sửa</Button>
@@ -329,13 +352,11 @@ export const StudentManagerPage: React.FC = () => {
         )}
       </Card>
 
-      {/* Add/Edit Modal & Import Modal remain mostly unchanged, just using new state */}
+      {/* Add/Edit Modal */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={formData.id ? "Cập nhật" : "Thêm mới"}
         footer={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setIsModalOpen(false)}>Hủy</Button><Button onClick={handleSaveStudent}>Lưu</Button></div>}>
          <div className="space-y-4">
-             {/* ... (Existing Form Code) ... */}
              <div className="flex flex-col items-center justify-center mb-6">
-                {/* Image Logic Same as before */}
                 <div className="relative w-24 h-24 mb-3">
                   {formData.avatar ? <img src={formData.avatar} className="w-full h-full rounded-full object-cover border-4 border-white shadow" /> : <div className="w-full h-full rounded-full bg-gray-100 flex items-center justify-center"><User size={40} /></div>}
                   <label className="absolute bottom-0 right-0 p-2 bg-blue-600 rounded-full text-white cursor-pointer"><Camera size={16} /><input type="file" className="hidden" accept="image/*" onChange={handleFileChange} /></label>
@@ -348,7 +369,22 @@ export const StudentManagerPage: React.FC = () => {
              </div>
              <div className="grid grid-cols-2 gap-4">
                <div><label className="block text-sm mb-1">Lớp</label><select className="w-full p-2 border rounded" value={formData.classId || ''} onChange={e => setFormData({...formData, classId: e.target.value})}><option value="">-- Chọn --</option>{classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-               <div><label className="block text-sm mb-1">User</label><input className="w-full p-2 border rounded" value={formData.username || ''} onChange={e => setFormData({...formData, username: e.target.value})}/></div>
+               <div>
+                 <label className="block text-sm mb-1">User (Tự sinh)</label>
+                 <div className="relative">
+                    <input className="w-full p-2 border rounded bg-gray-50" value={formData.username || ''} onChange={e => setFormData({...formData, username: e.target.value})}/>
+                    {!formData.id && <button onClick={() => setFormData(p => ({...p, username: generateUsername(p.name || '')}))} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600" title="Sinh lại user"><RefreshCw size={14}/></button>}
+                 </div>
+               </div>
+             </div>
+             <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-sm mb-1">Mật khẩu</label><input className="w-full p-2 border rounded" value={formData.password || ''} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="Mặc định: 1"/></div>
+                <div className="flex items-center mt-6">
+                   <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={formData.isActive} onChange={e => setFormData({...formData, isActive: e.target.checked})} className="w-4 h-4 text-blue-600 rounded" />
+                      <span className="text-sm">Kích hoạt ngay</span>
+                   </label>
+                </div>
              </div>
          </div>
       </Modal>
@@ -357,6 +393,7 @@ export const StudentManagerPage: React.FC = () => {
          <div className="space-y-4">
             <Button onClick={handleDownloadTemplate} variant="secondary" fullWidth><Download size={18} className="mr-2"/> Tải mẫu</Button>
             <div className="border-2 border-dashed p-8 text-center"><input type="file" accept=".xlsx" onChange={handleImportFile} className="w-full"/></div>
+            <p className="text-xs text-gray-500 text-center italic">* User và Pass sẽ tự động sinh nếu để trống. Tài khoản mới sẽ ở trạng thái 'Chưa kích hoạt'.</p>
          </div>
       </Modal>
     </div>
