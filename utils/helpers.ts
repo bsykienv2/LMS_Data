@@ -1,3 +1,4 @@
+
 import { Role } from '../types';
 
 export const getRoleDisplayName = (role: Role): string => {
@@ -44,4 +45,14 @@ export const parseDateToISO = (dateStr: string): string => {
     }
   }
   return '';
+};
+
+export const generateUsername = (name: string): string => {
+  if (!name) return '';
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d").replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 };
