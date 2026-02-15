@@ -1,4 +1,3 @@
-
 import { Role } from '../types';
 
 export const getRoleDisplayName = (role: Role): string => {
