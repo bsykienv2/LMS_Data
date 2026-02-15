@@ -1,7 +1,7 @@
 
 /**
  * ============================================================================
- * AUTHENTICATION SERVICE (OPTIMIZED WITH CACHE)
+ * AUTHENTICATION SERVICE (FIXED TYPE CHECKING)
  * ============================================================================
  */
 
@@ -10,7 +10,7 @@
  */
 function hashPassword(rawPassword) {
   if (!rawPassword) return '';
-  const rawBits = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, rawPassword);
+  const rawBits = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(rawPassword));
   let txtHash = '';
   for (let i = 0; i < rawBits.length; i++) {
     let hashVal = rawBits[i];
@@ -27,21 +27,29 @@ function hashPassword(rawPassword) {
 function login(username, password) {
   if (!username || !password) throw new Error('Vui lòng nhập tên đăng nhập và mật khẩu');
 
-  // 1. Tìm user trong DB (Sử dụng getAll đã tối ưu cache bên Database.gs)
+  // 1. Tìm user trong DB
   const result = getAll('USERS');
-  const user = result.data.find(u => u.username == username);
+  // Ép kiểu String cho username khi so sánh để an toàn
+  const user = result.data.find(u => String(u.username) === String(username));
 
   if (!user) throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
 
-  // 2. Validate Password
-  const inputHash = hashPassword(password);
+  // *** FIX CRITICAL: Ép kiểu mật khẩu từ DB sang String ***
+  // Google Sheet trả về number '1' cho mật khẩu '1', khiến lệnh .length bị lỗi
+  const dbPass = String(user.password);
+  const inputPass = String(password);
+  
+  const inputHash = hashPassword(inputPass);
   let isValid = false;
   
-  // Backwards compatibility check
-  if (user.password.length < 50) {
-     if (user.password === password) isValid = true;
-  } else {
-     if (user.password === inputHash) isValid = true;
+  // 2. Validate Password
+  // Case A: Mật khẩu cũ (Plain text) - Độ dài hash SHA256 luôn là 64 ký tự
+  if (dbPass.length < 50) {
+     if (dbPass === inputPass) isValid = true;
+  } 
+  // Case B: Mật khẩu đã mã hóa (Hashed)
+  else {
+     if (dbPass === inputHash) isValid = true;
   }
 
   if (!isValid) throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác');
@@ -51,7 +59,7 @@ function login(username, password) {
   // 3. Generate Token
   const token = `${user.id}_${new Date().getTime()}_${Math.floor(Math.random() * 1000)}`;
 
-  // 4. Lưu token vào Sheet (Để lưu trữ lâu dài)
+  // 4. Lưu token vào Sheet
   try {
     updateRecord('USERS', user.id, { token: token });
   } catch (e) {
@@ -61,14 +69,11 @@ function login(username, password) {
   // Clone user to remove password
   const safeUser = JSON.parse(JSON.stringify(user));
   delete safeUser.password;
-  safeUser.token = token; // Ensure token is in user object
+  safeUser.token = token;
 
-  // 5. *** FIX CRITICAL: CACHE TOKEN NGAY LẬP TỨC ***
-  // Lưu session vào CacheService trong 6 tiếng (21600 giây).
-  // Việc này giúp checkAuth tìm thấy token ngay lập tức mà không cần đợi Sheet cập nhật.
+  // 5. Cache Token
   try {
     const cache = CacheService.getScriptCache();
-    // Key format: AUTH_{token}
     cache.put(`AUTH_${token}`, JSON.stringify(safeUser), 21600);
   } catch (e) {
     console.error("Cache Error: " + e.message);
@@ -87,25 +92,23 @@ function login(username, password) {
 function checkAuth(token) {
   if (!token) throw new Error('Unauthorized: Vui lòng đăng nhập.');
 
-  // 1. *** ƯU TIÊN KIỂM TRA CACHE (FAST PATH) ***
+  // 1. Check Cache
   try {
     const cache = CacheService.getScriptCache();
     const cachedUser = cache.get(`AUTH_${token}`);
     if (cachedUser) {
       return JSON.parse(cachedUser);
     }
-  } catch (e) {
-    // Nếu lỗi cache, lờ đi và check Sheet
-  }
+  } catch (e) {}
 
-  // 2. Fallback: Kiểm tra Sheet (Slow Path) nếu Cache hết hạn hoặc chưa sync
+  // 2. Check Sheet (Fallback)
   const result = getAll('USERS');
   const user = result.data.find(u => String(u.token) === String(token));
 
   if (!user) throw new Error('Unauthorized: Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
   if (String(user.isActive) === 'false') throw new Error('Unauthorized: Tài khoản đã bị khóa.');
 
-  // Nếu tìm thấy trong Sheet mà không có trong Cache (ví dụ server restart), cache lại
+  // Re-cache
   try {
     const safeUser = JSON.parse(JSON.stringify(user));
     delete safeUser.password;
@@ -117,7 +120,6 @@ function checkAuth(token) {
 
 function requireRole(role, action) {
   if (role === 'ADMIN') return true;
-
   if (role === 'STUDENT') {
     switch (action) {
       case 'read':   return true;
@@ -127,6 +129,5 @@ function requireRole(role, action) {
       default: return false;
     }
   }
-
   return false;
 }
